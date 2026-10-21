@@ -1,0 +1,57 @@
+# Run from this directory:  docker compose up -d --build
+#
+# Two containers: the gate (never exposed to the internet directly) and Caddy, which owns 80/443 and gets
+# Let's Encrypt certificates automatically.
+#
+# Same server as the style-match service? Do NOT start a second Caddy (both want ports 80/443). Add the
+# `receipt-gate` service below to the style-match compose file instead, and one more site block to its
+# Caddyfile (see DEPLOY.md).
+
+services:
+
+  receipt-gate:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: pantea/receipt-gate:1.0.0
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      GATE_API_KEY: ${GATE_API_KEY:?set GATE_API_KEY in deploy/.env}
+      GATE_RATE_LIMIT: ${GATE_RATE_LIMIT:-20}
+    volumes:
+      # CLIP model, tessdata/fas.traineddata and the embedding cache live on the host.
+      - ./models:/app/models
+      # Example receipts and non-receipts, read-only.
+      - ./references:/app/references:ro
+    expose:
+      - "8086"
+    networks: [web]
+    deploy:
+      resources:
+        limits:
+          memory: 1500M
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in deploy/.env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in deploy/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - receipt-gate
+    networks: [web]
+
+networks:
+  web:
+
+volumes:
+  caddy_data:
+  caddy_config:

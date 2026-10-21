@@ -1,0 +1,70 @@
+server:
+  port: 8086
+
+spring:
+  application:
+    name: pantea-receipt-gate
+  servlet:
+    multipart:
+      max-file-size: 15MB
+      max-request-size: 16MB
+
+logging:
+  level:
+    com.pantea.receiptgate: INFO
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    enabled: true
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+    default-models-expand-depth: 1
+    display-request-duration: true
+  paths-to-match: /api/**
+
+gate:
+  # references/receipts/...  and  references/non-receipts/...  (one optional sub-folder level = group)
+  references-dir: references
+
+  clip:
+    # The same file the style-match service uses. scripts/download-models.ps1 copies it from ../wizard if present.
+    model-path: models/clip-vit-base-patch32-vision.onnx
+    index-cache: models/reference-index.json
+    input-size: 224
+    intra-op-threads: 2
+    multi-crop: true
+    augment-receipts: true
+
+  probe:
+    l2: 0.0005
+    iterations: 6000
+    learning-rate: 0.5
+
+  ocr:
+    # Windows (UB Mannheim installer):  C:/Program Files/Tesseract-OCR/tesseract.exe
+    command: tesseract
+    # Holds fas.traineddata from tessdata_best (downloaded by the script). Empty = Tesseract's own folder.
+    tessdata-dir: models/tessdata
+    language: fas
+    page-seg-mode: 6
+    timeout-seconds: 30
+    max-concurrent: 2
+    retry-rotations: [90, 270]
+
+  decision:
+    # Measured on 16 receipts / 39 non-receipts: receipts scored 5-22, hardest non-receipts 1-4.
+    min-keyword-score: 5
+    # Below the word bar, CLIP >= this -> UNSURE (ask again / send anyway) instead of NOT_RECEIPT.
+    unsure-probability: 0.5
+    # CLIP below this skips the sideways OCR retries (room photos ~0.03, worst degraded receipt 0.17).
+    rotation-retry-min-probability: 0.10
+    max-pixels: 40000000
+    min-side: 64
+
+  # Shared secret required in the X-Api-Key header. Empty = no auth (local dev only).
+  api-key: ""
+  rate-limit-per-minute: 20
+  allowed-origins: ""

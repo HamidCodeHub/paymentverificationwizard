@@ -1,0 +1,48 @@
+# Build output
+target/
+*.jar
+*.war
+
+# Model weights and generated vectors (download with scripts/download-models.*)
+models/
+*.onnx
+*.traineddata
+reference-index.json
+
+# Real customer receipts carry names, IBANs, national ID and phone numbers. Never commit them.
+references/receipts/
+
+# Third-party room photos used as negatives locally; not ours to publish. Keep them out of the public repo.
+references/non-receipts/room-photos/
+# ...and the rendered screenshots that embed those photos
+references/non-receipts/instagram/
+references/non-receipts/gallery/
+references/non-receipts/chats/chat-img-*
+
+# Bench artefacts
+bench/embeddings.npz
+bench/probe_scores.json
+
+# Deployment secrets and copied assets
+deploy/.env
+deploy/models/
+deploy/references/
+.env
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.project
+.classpath
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log

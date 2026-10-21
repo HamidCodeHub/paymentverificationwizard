@@ -1,0 +1,22 @@
+# Run the service locally exactly as it runs on the server: Java, Tesseract and the Persian model all live
+# inside the container, so nothing has to be installed on Windows except Docker Desktop.
+#
+#   docker compose -f docker-compose.local.yml up --build          -> http://localhost:8086/swagger-ui.html
+#
+# Accuracy check against references/ (same report as --verify in the README):
+#   docker compose -f docker-compose.local.yml run --rm --entrypoint sh receipt-gate -c "exec java -jar /app/app.jar --verify"
+
+services:
+  receipt-gate:
+    build: .
+    image: pantea/receipt-gate:dev
+    environment:
+      # The image defaults to the prod profile (API key required, Swagger off). Locally use the plain
+      # application.yml: no key, Swagger on, paths relative to /app.
+      SPRING_PROFILES_ACTIVE: default
+    ports:
+      - "8086:8086"
+    volumes:
+      # CLIP model + tessdata/fas.traineddata, and the embedding cache the service writes on first start.
+      - ./models:/app/models
+      - ./references:/app/references:ro

@@ -1,0 +1,33 @@
+# Activated by SPRING_PROFILES_ACTIVE=prod (the Dockerfile sets it).
+# Only the values that differ from application.yml belong here.
+
+server:
+  port: 8086
+  # Caddy terminates TLS and sets X-Forwarded-*.
+  forward-headers-strategy: native
+  shutdown: graceful
+
+gate:
+  references-dir: /app/references
+  clip:
+    model-path: /app/models/clip-vit-base-patch32-vision.onnx
+    index-cache: /app/models/reference-index.json
+  ocr:
+    command: tesseract
+    tessdata-dir: /app/models/tessdata
+
+  # Required in production. The container refuses to start without it, which is the point.
+  api-key: ${GATE_API_KEY}
+  rate-limit-per-minute: ${GATE_RATE_LIMIT:20}
+  allowed-origins: ""
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+logging:
+  level:
+    root: WARN
+    com.pantea.receiptgate: INFO

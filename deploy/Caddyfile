@@ -1,0 +1,41 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Uploads are capped at 15 MB in the app; stop anything larger at the edge.
+	request_body {
+		max_size 16MB
+	}
+
+	# Only the API surface is routed; Swagger and everything else get a 404 here.
+	handle /api/* {
+		reverse_proxy receipt-gate:8086 {
+			# A check is 1-4 s (OCR); a cold JVM on the first request is slower.
+			transport http {
+				response_header_timeout 60s
+			}
+		}
+	}
+
+	handle {
+		respond "Not found" 404
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	# Access log only: request lines, never bodies. Uploaded receipts are never written to disk.
+	log {
+		output file /data/access.log {
+			roll_size 10MB
+			roll_keep 3
+		}
+	}
+}

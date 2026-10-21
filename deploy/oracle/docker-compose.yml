@@ -1,0 +1,88 @@
+# Both Pantea services on one Oracle Always Free machine, behind one Caddy.
+#
+# Layout on the server (upload.ps1 creates it):
+#   ~/pantea/wizard/                    style-match source
+#   ~/pantea/paymentverificationwizard/ receipt-gate source
+#   ~/pantea/stack/                     this folder: docker-compose.yml, Caddyfile, .env
+#   ~/pantea/data/models/               CLIP ONNX (shared by both), tessdata/fas.traineddata, embedding caches
+#   ~/pantea/data/themes/               style-match reference photos
+#   ~/pantea/data/references/           receipt-gate receipts/ and non-receipts/
+#
+# Run from ~/pantea/stack:   docker compose up -d --build
+
+x-java-opts: &java-opts
+  # -Xms keeps each heap committed from the start. Besides avoiding GC churn, it keeps the machine's memory use
+  # above 20%: Oracle reclaims an Always Free A1 machine only if CPU, network AND memory all stay under 20%.
+  JAVA_OPTS: "-Xms512m -XX:MaxRAMPercentage=50 -XX:+UseSerialGC -Djava.awt.headless=true"
+
+services:
+
+  matcher:
+    build:
+      context: ../wizard
+    image: pantea/style-match:1.0.0
+    restart: unless-stopped
+    environment:
+      <<: *java-opts
+      SPRING_PROFILES_ACTIVE: prod
+      MATCHER_API_KEY: ${MATCHER_API_KEY:?set MATCHER_API_KEY in .env}
+      MATCHER_RATE_LIMIT: ${MATCHER_RATE_LIMIT:-20}
+    volumes:
+      - ../data/models:/app/models
+      - ../data/themes:/app/themes:ro
+    expose:
+      - "8085"
+    networks: [web]
+    deploy:
+      resources:
+        limits:
+          memory: 1500M
+
+  receipt-gate:
+    build:
+      context: ../paymentverificationwizard
+    image: pantea/receipt-gate:1.0.0
+    restart: unless-stopped
+    environment:
+      <<: *java-opts
+      SPRING_PROFILES_ACTIVE: prod
+      GATE_API_KEY: ${GATE_API_KEY:?set GATE_API_KEY in .env}
+      GATE_RATE_LIMIT: ${GATE_RATE_LIMIT:-20}
+    volumes:
+      # Same folder as the matcher: one 350 MB CLIP file, two separate cache files.
+      - ../data/models:/app/models
+      - ../data/references:/app/references:ro
+    expose:
+      - "8086"
+    networks: [web]
+    deploy:
+      resources:
+        limits:
+          memory: 1500M
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      MATCH_DOMAIN: ${MATCH_DOMAIN:?set MATCH_DOMAIN in .env}
+      RECEIPTS_DOMAIN: ${RECEIPTS_DOMAIN:?set RECEIPTS_DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates persist here. Lose it and Caddy re-requests them (Let's Encrypt rate limits).
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - matcher
+      - receipt-gate
+    networks: [web]
+
+networks:
+  web:
+
+volumes:
+  caddy_data:
+  caddy_config:

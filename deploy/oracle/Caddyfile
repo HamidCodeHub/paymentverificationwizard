@@ -1,0 +1,54 @@
+{
+	email {$ACME_EMAIL}
+}
+
+(common) {
+	encode zstd gzip
+	# Both apps cap uploads at 15 MB; stop anything larger at the edge.
+	request_body {
+		max_size 16MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+	# Request lines only, never bodies: uploaded photos and receipts are never written to disk.
+	log {
+		output file /data/access.log {
+			roll_size 10MB
+			roll_keep 3
+		}
+	}
+}
+
+# Style match: room photo -> closest Pantea theme
+{$MATCH_DOMAIN} {
+	import common
+	handle /api/* {
+		reverse_proxy matcher:8085 {
+			transport http {
+				response_header_timeout 60s
+			}
+		}
+	}
+	handle {
+		respond "Not found" 404
+	}
+}
+
+# Receipt gate: is this upload a bank-transfer receipt?
+{$RECEIPTS_DOMAIN} {
+	import common
+	handle /api/* {
+		reverse_proxy receipt-gate:8086 {
+			transport http {
+				response_header_timeout 60s
+			}
+		}
+	}
+	handle {
+		respond "Not found" 404
+	}
+}

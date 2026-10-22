@@ -36,7 +36,7 @@ function Pack([string]$Name, [string]$Dir, [string[]]$Exclude = @()) {
 }
 
 $sourceExcludes = @("target", ".idea", ".git", "models", "references", "node_modules", "*.npz",
-                    "probe_scores.json", "*.log")
+                    "probe_scores.json", "*.log", "_to_delete", ".venv*")
 
 Write-Host "Packing ..."
 Pack "wizard" $wizard ($sourceExcludes + @("themes"))

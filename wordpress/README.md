@@ -6,7 +6,7 @@ panteadesignstudio.com (paste without the first `<?php` line). It adds the autom
 
 | Service verdict | Customer sees |
 |---|---|
-| RECEIPT | form is submitted as before → on-hold order, Pantea confirms → quiz |
+| RECEIPT | form is submitted as before → the new order is completed automatically → quiz right away (order note says it was auto-approved; Pantea still checks the bank) |
 | NOT_RECEIPT | "not a payment receipt, upload the correct one" (not counted) |
 | UNSURE | "not clear, upload a clearer one (attempt n of 3)"; after the 3rd → "e-mail the receipt to Pantea" with a mailto button (counter resets after 1 hour or on a good receipt) |
 | service down / no API key | form is submitted as before → manual review (a paying customer is never blocked) |

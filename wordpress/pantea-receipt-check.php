@@ -6,7 +6,8 @@
  * "Iranian bank transfer – receipt upload", which is left unchanged). Before the form is sent, the image goes
  * to the receipt service (receipts.panteadesignstudio.com) through admin-ajax, so the API key never reaches
  * the browser:
- *   RECEIPT      -> the original form is submitted as before (on-hold order, Pantea checks and completes it)
+ *   RECEIPT      -> the original form is submitted as before, and the new order is completed automatically, so
+ *                   the customer can start the quiz right away (Pantea still sees the order and the receipt)
  *   NOT_RECEIPT  -> "this is not a payment receipt, upload the correct one"
  *   UNSURE       -> "not clear, upload a better one" — after 3 unclear uploads the customer is asked to e-mail
  *                   the receipt to Pantea instead
@@ -146,6 +147,8 @@ add_action( 'wp_ajax_pd_receipt_check', function () {
 	switch ( $data['verdict'] ) {
 		case 'RECEIPT':
 			delete_transient( pd_rc_unsure_key( $user_id ) );
+			// The upload form is submitted next and creates an on-hold order; this marks it for auto-completion.
+			set_transient( 'pd_rc_ok_' . (int) $user_id, time(), 10 * MINUTE_IN_SECONDS );
 			$count = 0;
 			$reply( 'RECEIPT' );
 			break;
@@ -158,6 +161,24 @@ add_action( 'wp_ajax_pd_receipt_check', function () {
 			$reply( 'NOT_RECEIPT' );
 	}
 } );
+
+// ---------------------------------------------------------------------------------------------------------
+// A receipt the service recognised: complete the order the upload form just created (on-hold), so the
+// customer gets the quiz immediately. Only for an upload approved in the last 10 minutes by the check above;
+// uploads that went to manual review (service down, no API key) stay on-hold for Pantea.
+// ---------------------------------------------------------------------------------------------------------
+add_action( 'woocommerce_order_status_on-hold', function ( $order_id, $order = null ) {
+	$order = $order instanceof WC_Order ? $order : wc_get_order( $order_id );
+	if ( ! $order ) {
+		return;
+	}
+	$uid = (int) $order->get_customer_id();
+	if ( ! $uid || ! get_transient( 'pd_rc_ok_' . $uid ) ) {
+		return;
+	}
+	delete_transient( 'pd_rc_ok_' . $uid );
+	$order->update_status( 'completed', 'رسید واریز توسط بررسی خودکار تأیید شد و سفارش خودکار تکمیل شد. واریز را در حساب بانکی بررسی کنید.' );
+}, 20, 2 );
 
 // ---------------------------------------------------------------------------------------------------------
 // Admin demo: an administrator who already has access normally sees only "payment confirmed + start quiz".

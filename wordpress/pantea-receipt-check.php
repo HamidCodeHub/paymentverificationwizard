@@ -9,8 +9,10 @@
  *   RECEIPT      -> the original form is submitted as before, and the new order is completed automatically, so
  *                   the customer can start the quiz right away (Pantea still sees the order and the receipt)
  *   NOT_RECEIPT  -> "this is not a payment receipt, upload the correct one"
- *   UNSURE       -> "not clear, upload a better one" — after 3 unclear uploads the customer is asked to e-mail
- *                   the receipt to Pantea instead
+ *   UNSURE       -> "not clear, upload a better one" — after 3 unclear uploads the three images are e-mailed to
+ *                   Pantea for a manual check and the customer is told she will be in touch
+ * E-mails: none for an automatically approved receipt (no new-order / on-hold / completed mail); one e-mail to
+ * Pantea after 3 unclear uploads.
  *   service down -> the original form is submitted as before, so a real customer is never blocked
  *
  * Settings → General → "Receipt check": API key (required), API address, e-mail for unclear receipts.
@@ -38,6 +40,69 @@ function pd_rc_unsure_key( $user_id ) {
 
 function pd_rc_unsure_count( $user_id ) {
 	return (int) get_transient( pd_rc_unsure_key( $user_id ) );
+}
+
+// Unclear uploads are kept (private folder, not web-readable) until they are e-mailed to Pantea.
+function pd_rc_unsure_dir( $user_id ) {
+	$up   = wp_upload_dir();
+	$root = trailingslashit( $up['basedir'] ) . 'pd-rc-unsure';
+	if ( ! is_dir( $root ) ) {
+		wp_mkdir_p( $root );
+		@file_put_contents( $root . '/.htaccess', "Require all denied\nDeny from all\n" );
+		@file_put_contents( $root . '/index.php', '<?php // Silence.' );
+	}
+	$dir = $root . '/' . (int) $user_id;
+	wp_mkdir_p( $dir );
+	return $dir;
+}
+
+function pd_rc_unsure_clear( $user_id ) {
+	$up  = wp_upload_dir();
+	$dir = trailingslashit( $up['basedir'] ) . 'pd-rc-unsure/' . (int) $user_id;
+	foreach ( (array) glob( $dir . '/*.jpg' ) as $f ) {
+		@unlink( $f );
+	}
+}
+
+// After the last unclear upload: one e-mail to Pantea with the customer's details and the images attached.
+function pd_rc_mail_unsure( $user_id, $whatsapp ) {
+	$user  = get_userdata( $user_id );
+	$up    = wp_upload_dir();
+	$files = (array) glob( trailingslashit( $up['basedir'] ) . 'pd-rc-unsure/' . (int) $user_id . '/*.jpg' );
+	$name  = $user ? trim( $user->first_name . ' ' . $user->last_name ) : '';
+	$wa    = $whatsapp !== '' ? $whatsapp : (string) get_user_meta( $user_id, 'billing_whatsapp', true );
+	$lines = array(
+		'رسید واریز این مشتری پس از ' . (int) PD_RC_MAX_UNSURE . ' بار بارگذاری به‌صورت خودکار قابل تأیید نبود (تصویر واضح نیست).',
+		'تصاویر بارگذاری‌شده پیوست این ایمیل است. لطفاً واریز را بررسی کنید و با مشتری تماس بگیرید.',
+		'',
+		'نام: ' . ( $name !== '' ? $name : ( $user ? $user->display_name : '' ) ),
+		'ایمیل: ' . ( $user ? $user->user_email : '' ),
+		'واتس‌اپ: ' . $wa,
+	);
+	if ( defined( 'PD_IRAN_PRICE_TOMAN' ) ) {
+		$lines[] = 'مبلغ: ' . number_format( (float) PD_IRAN_PRICE_TOMAN ) . ' تومان';
+	}
+	$lines[] = 'حساب کاربری: ' . admin_url( 'user-edit.php?user_id=' . (int) $user_id );
+	$sent = wp_mail(
+		pd_rc_review_email(),
+		'رسید نامشخص – ' . ( $user ? $user->user_email : '#' . $user_id ),
+		implode( "\n", $lines ),
+		array(
+			'Content-Type: text/plain; charset=UTF-8',
+			// Same sender as the site's other mail that arrives (Wordfence alerts): an address on this domain.
+			'From: ' . get_bloginfo( 'name' ) . ' <wordpress@' . wp_parse_url( home_url(), PHP_URL_HOST ) . '>',
+		),
+		$files
+	);
+	if ( ! $sent ) {
+		global $phpmailer;
+		update_option( 'pd_rc_last_mail_error', ( isset( $phpmailer->ErrorInfo ) ? $phpmailer->ErrorInfo : 'wp_mail returned false' ) . ' @ ' . current_time( 'mysql' ), false );
+	}
+	if ( $sent ) {
+		pd_rc_unsure_clear( $user_id );
+		set_transient( 'pd_rc_mailed_' . (int) $user_id, 1, PD_RC_UNSURE_TTL );
+	}
+	return (bool) $sent;
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -90,6 +155,7 @@ add_action( 'wp_ajax_pd_receipt_check', function () {
 			'attempts' => $count,
 			'max'      => $max,
 			'escalate' => $count >= $max,
+			'mailed'   => (bool) get_transient( 'pd_rc_mailed_' . (int) get_current_user_id() ),
 		), $extra ) );
 	};
 
@@ -147,14 +213,24 @@ add_action( 'wp_ajax_pd_receipt_check', function () {
 	switch ( $data['verdict'] ) {
 		case 'RECEIPT':
 			delete_transient( pd_rc_unsure_key( $user_id ) );
+			pd_rc_unsure_clear( $user_id );
 			// The upload form is submitted next and creates an on-hold order; this marks it for auto-completion.
 			set_transient( 'pd_rc_ok_' . (int) $user_id, time(), 10 * MINUTE_IN_SECONDS );
 			$count = 0;
 			$reply( 'RECEIPT' );
 			break;
 		case 'UNSURE':
+			if ( 0 === $count ) {
+				pd_rc_unsure_clear( $user_id );
+				delete_transient( 'pd_rc_mailed_' . (int) $user_id );
+			}
 			$count++;
 			set_transient( pd_rc_unsure_key( $user_id ), $count, PD_RC_UNSURE_TTL );
+			@copy( $tmp, pd_rc_unsure_dir( $user_id ) . '/receipt-' . $count . '.jpg' );
+			if ( $count >= $max ) {
+				$wa = isset( $_POST['whatsapp'] ) ? sanitize_text_field( wp_unslash( $_POST['whatsapp'] ) ) : '';
+				pd_rc_mail_unsure( $user_id, $wa );
+			}
 			$reply( 'UNSURE' );
 			break;
 		default:
@@ -177,8 +253,23 @@ add_action( 'woocommerce_order_status_on-hold', function ( $order_id, $order = n
 		return;
 	}
 	delete_transient( 'pd_rc_ok_' . $uid );
+	$order->update_meta_data( '_pd_rc_auto', '1' );
 	$order->update_status( 'completed', 'رسید واریز توسط بررسی خودکار تأیید شد و سفارش خودکار تکمیل شد. واریز را در حساب بانکی بررسی کنید.' );
 }, 20, 2 );
+
+// No e-mails for an automatically approved receipt: not to Pantea (new order) and not to the customer
+// (on-hold / processing / completed).
+foreach ( array( 'new_order', 'customer_on_hold_order', 'customer_processing_order', 'customer_completed_order' ) as $pd_rc_email_id ) {
+	add_filter( 'woocommerce_email_enabled_' . $pd_rc_email_id, function ( $enabled, $order ) {
+		if ( $order instanceof WC_Order ) {
+			$fresh = wc_get_order( $order->get_id() );
+			if ( $fresh && '1' === $fresh->get_meta( '_pd_rc_auto' ) ) {
+				return false;
+			}
+		}
+		return $enabled;
+	}, 20, 2 );
+}
 
 // ---------------------------------------------------------------------------------------------------------
 // Admin demo: an administrator who already has access normally sees only "payment confirmed + start quiz".
@@ -215,6 +306,8 @@ add_action( 'wp_ajax_pd_receipt_reset', function () {
 		wp_send_json( array( 'ok' => false ), 403 );
 	}
 	delete_transient( pd_rc_unsure_key( get_current_user_id() ) );
+	delete_transient( 'pd_rc_mailed_' . get_current_user_id() );
+	pd_rc_unsure_clear( get_current_user_id() );
 	wp_send_json( array( 'ok' => true ) );
 } );
 
@@ -236,6 +329,7 @@ add_action( 'wp_footer', function () {
 		'userEmail' => $user->user_email,
 		'demo'      => pd_rc_is_demo(),
 		'quizUrl'   => home_url( '/quiz' ),
+		'mailed'    => (bool) get_transient( 'pd_rc_mailed_' . (int) $user->ID ),
 	);
 	?>
 <style>
@@ -279,10 +373,13 @@ add_action( 'wp_footer', function () {
 		var href = 'mailto:' + CFG.email + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
 		var div = document.createElement('div');
 		div.className = 'pd-rc-escalate';
-		div.innerHTML = '<p class="pd-msg pd-warn">رسید شما پس از ' + fa(CFG.max) + ' بار بارگذاری به‌صورت خودکار قابل تأیید نبود.'
-			+ ' لطفاً تصویر رسید را به ایمیل زیر بفرستید تا پانته‌آ آن را بررسی کند و از طریق ایمیل یا واتس‌اپ با شما تماس بگیرد.</p>'
-			+ '<p class="pd-rc-mail">' + CFG.email + '</p>'
-			+ '<a class="pd-btn" href="' + href + '">ارسال رسید از طریق ایمیل</a>';
+		div.innerHTML = CFG.mailed
+			? '<p class="pd-msg pd-warn">رسید شما پس از ' + fa(CFG.max) + ' بار بارگذاری به‌صورت خودکار قابل تأیید نبود.'
+				+ ' تصاویر برای بررسی دستی به پانته‌آ ارسال شد. پس از بررسی، از طریق ایمیل یا واتس‌اپ با شما تماس گرفته می‌شود.</p>'
+			: '<p class="pd-msg pd-warn">رسید شما پس از ' + fa(CFG.max) + ' بار بارگذاری به‌صورت خودکار قابل تأیید نبود.'
+				+ ' لطفاً تصویر رسید را به ایمیل زیر بفرستید تا پانته‌آ آن را بررسی کند و از طریق ایمیل یا واتس‌اپ با شما تماس بگیرد.</p>'
+				+ '<p class="pd-rc-mail">' + CFG.email + '</p>'
+				+ '<a class="pd-btn" href="' + href + '">ارسال رسید از طریق ایمیل</a>';
 		if (CFG.demo) {
 			var again = document.createElement('a');
 			again.href = '#'; again.className = 'pd-rc-reset'; again.textContent = 'شروع دوباره (فقط مدیر)';
@@ -355,6 +452,7 @@ add_action( 'wp_footer', function () {
 			fd.append('action', 'pd_receipt_check');
 			fd.append('nonce', CFG.nonce);
 			fd.append('image', jpeg, 'receipt.jpg');
+			fd.append('whatsapp', (form.querySelector('[name="pd_whatsapp"]') || {}).value || '');
 			return fetch(CFG.ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
 				.then(function (r) { return r.json(); })
 				.then(handle, function () { handle({ verdict: 'ERROR' }); });
@@ -366,6 +464,7 @@ add_action( 'wp_footer', function () {
 
 	function handle(res) {
 		CFG.attempts = res.attempts != null ? res.attempts : CFG.attempts;
+		if (res.mailed != null) CFG.mailed = res.mailed;
 		switch (res.verdict) {
 			case 'RECEIPT':
 				show('pd-ok', 'رسید پرداخت تأیید شد. در حال ارسال…');

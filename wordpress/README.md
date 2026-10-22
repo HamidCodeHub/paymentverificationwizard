@@ -6,9 +6,9 @@ panteadesignstudio.com (paste without the first `<?php` line). It adds the autom
 
 | Service verdict | Customer sees |
 |---|---|
-| RECEIPT | form is submitted as before → the new order is completed automatically → quiz right away (order note says it was auto-approved; Pantea still checks the bank) |
+| RECEIPT | form is submitted as before → the new order is completed automatically → quiz right away, no e-mails (order note says it was auto-approved; Pantea still checks the bank) |
 | NOT_RECEIPT | "not a payment receipt, upload the correct one" (not counted) |
-| UNSURE | "not clear, upload a clearer one (attempt n of 3)"; after the 3rd → "e-mail the receipt to Pantea" with a mailto button (counter resets after 1 hour or on a good receipt) |
+| UNSURE | "not clear, upload a clearer one (attempt n of 3)"; after the 3rd the three images are e-mailed to Pantea (review address) and the customer is told she will be in touch; if the mail fails, a mailto button instead (counter resets after 1 hour or on a good receipt) |
 | service down / no API key | form is submitted as before → manual review (a paying customer is never blocked) |
 
 Settings → General → **Receipt check**: API key (from `~/pantea/stack/.env` on the receipts server), API address

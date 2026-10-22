@@ -21,3 +21,12 @@ shows the confirmation and the quiz button on the page without creating an order
 The browser re-encodes the image to JPEG (max 2000 px) before sending, so WebP and iPhone photos work and uploads
 stay small; the API key stays on the WordPress server (admin-ajax proxy). All WordPress calls reach the service
 from Hostinger's IP, so its per-IP rate limit (20/min) is effectively site-wide.
+
+## Other site snippets
+
+- `pantea-my-account.php` — **"Pantea – My account look"**: My account in the site's colours, Downloads hidden, orders first on the dashboard.
+- `pantea-desktop.php` — **"Pantea – desktop layout"**: real desktop layouts (1025 px and wider) for the home page, صفحه خرید,
+  رزرو جلسه مشاوره, درباره من, سوالات متداول, ارتباط با ما, پرداخت از داخل ایران, the quiz, shop, product pages and My account.
+  Everything sits inside one `min-width:1025px` media query, so phones and tablets look exactly as before; the one exception
+  fixes WooCommerce rating stars, which showed as "sssss" on every screen size. Deactivate the snippet to get the old
+  desktop look back. Rules target page ids and Elementor element ids, so a page rebuilt in Elementor may need its block updated.

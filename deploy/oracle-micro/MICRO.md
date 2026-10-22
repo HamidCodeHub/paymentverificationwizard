@@ -94,6 +94,22 @@ docker compose run --rm --entrypoint sh app -c 'exec java $JAVA_OPTS -jar /app/a
 - WordPress must treat "service unreachable" as "send to the admin for manual review", never as "blocked", so
   an outage never stops a real customer.
 
+## Swagger (only through an SSH tunnel)
+
+Off by default in production. Turning it on never makes it public: Caddy forwards only `/api/*`, and the app's
+port is bound to the machine's own localhost, so the only way in is an SSH tunnel with your key.
+
+Turn on (receipts machine; for match use 80.225.83.29 and port 8085):
+```powershell
+ssh -i $HOME\.ssh\oracle_pantea ubuntu@80.225.93.215 "cd ~/pantea/stack && sed -i '/^SWAGGER=/d' .env && echo SWAGGER=true >> .env && sudo docker compose up -d"
+```
+Open it (keep this window open while you use it):
+```powershell
+Start-Process http://localhost:8086/swagger-ui.html; ssh -N -L 8086:localhost:8086 -i $HOME\.ssh\oracle_pantea ubuntu@80.225.93.215
+```
+In Swagger UI press **Authorize** and paste the machine's `API_KEY`. Turn off again with the first line and
+`SWAGGER=false`.
+
 ## Day to day
 | Task | How |
 |---|---|

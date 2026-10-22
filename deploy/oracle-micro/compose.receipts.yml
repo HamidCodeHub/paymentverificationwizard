@@ -28,11 +28,18 @@ services:
       GATE_OCR_MAXCONCURRENT: "1"
       # A 25 MP photo decodes to ~100 MB of pixels; larger uploads are refused instead of exhausting the heap.
       GATE_DECISION_MAXPIXELS: "25000000"
+      # Swagger stays off in production. SWAGGER=true in .env turns it on; it is then reachable only through an
+      # SSH tunnel (see MICRO.md), because the port below is bound to the machine's localhost and Caddy only
+      # forwards /api/*.
+      SPRINGDOC_APIDOCS_ENABLED: ${SWAGGER:-false}
+      SPRINGDOC_SWAGGERUI_ENABLED: ${SWAGGER:-false}
     volumes:
       - ../data/models:/app/models
       - ../data/references:/app/references:ro
     expose:
       - "8086"
+    ports:
+      - "127.0.0.1:8086:8086"   # localhost only: for the SSH tunnel, never public
     networks: [web]
     logging: &logging
       driver: json-file

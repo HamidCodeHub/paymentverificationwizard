@@ -22,11 +22,18 @@ services:
       MATCHER_API_KEY: ${API_KEY:?set API_KEY in .env}
       MATCHER_RATE_LIMIT: ${RATE_LIMIT:-20}
       MATCHER_MODELPATH: /app/models/clip-vit-base-patch32-vision-int8.onnx
+      # Swagger stays off in production. SWAGGER=true in .env turns it on; it is then reachable only through an
+      # SSH tunnel (see MICRO.md), because the port below is bound to the machine's localhost and Caddy only
+      # forwards /api/*.
+      SPRINGDOC_APIDOCS_ENABLED: ${SWAGGER:-false}
+      SPRINGDOC_SWAGGERUI_ENABLED: ${SWAGGER:-false}
     volumes:
       - ../data/models:/app/models
       - ../data/themes:/app/themes:ro
     expose:
       - "8085"
+    ports:
+      - "127.0.0.1:8085:8085"   # localhost only: for the SSH tunnel, never public
     networks: [web]
     logging: &logging
       driver: json-file

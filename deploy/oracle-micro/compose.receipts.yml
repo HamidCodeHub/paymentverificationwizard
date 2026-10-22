@@ -1,0 +1,68 @@
+# Receipt gate alone on one Oracle Always Free VM.Standard.E2.1.Micro (AMD, 1 GB RAM), behind Caddy.
+#
+# upload.ps1 -Role receipts copies this file to ~/pantea/stack/docker-compose.yml, so on the server it is just:
+#   cd ~/pantea/stack && docker compose up -d --build
+#
+# Measured on the reference set: with the int8 CLIP model and these JVM limits the service peaks at ~540 MB
+# (+ ~120 MB for a Tesseract child while it reads a receipt) and gives the same verdicts as the full model.
+
+services:
+
+  app:
+    build:
+      context: ../paymentverificationwizard
+    image: pantea/receipt-gate:1.0.0
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      # Small fixed heap: ONNX Runtime and Tesseract live outside it. -XX:TieredStopAtLevel=1 and the small code
+      # cache trade a little peak speed for ~60 MB less memory, which matters more on a 1 GB machine.
+      JAVA_OPTS: >-
+        -Xms64m -Xmx300m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=32m -Xss512k
+        -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:CICompilerCount=2 -Djava.awt.headless=true
+      GATE_API_KEY: ${API_KEY:?set API_KEY in .env}
+      GATE_RATE_LIMIT: ${RATE_LIMIT:-20}
+      # 96 MB int8 model instead of the 350 MB original: a third of the memory, 3x faster, same verdicts.
+      GATE_CLIP_MODELPATH: /app/models/clip-vit-base-patch32-vision-int8.onnx
+      # One Tesseract at a time; a second one would push the machine into swap.
+      GATE_OCR_MAXCONCURRENT: "1"
+      # A 25 MP photo decodes to ~100 MB of pixels; larger uploads are refused instead of exhausting the heap.
+      GATE_DECISION_MAXPIXELS: "25000000"
+    volumes:
+      - ../data/models:/app/models
+      - ../data/references:/app/references:ro
+    expose:
+      - "8086"
+    networks: [web]
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+      UPSTREAM: app:8086
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates persist here. Lose it and Caddy re-requests them (Let's Encrypt rate limits).
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    networks: [web]
+    logging: *logging
+
+networks:
+  web:
+
+volumes:
+  caddy_data:
+  caddy_config:

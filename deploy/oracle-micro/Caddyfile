@@ -1,0 +1,36 @@
+{
+	email {$ACME_EMAIL}
+}
+
+# One service per machine: DOMAIN and UPSTREAM come from the compose file (.env sets DOMAIN).
+{$DOMAIN} {
+	encode zstd gzip
+	# Both apps cap uploads at 15 MB; stop anything larger at the edge.
+	request_body {
+		max_size 16MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+	# Request lines only, never bodies: uploaded photos and receipts are never written to disk.
+	log {
+		output file /data/access.log {
+			roll_size 10MB
+			roll_keep 3
+		}
+	}
+	handle /api/* {
+		reverse_proxy {$UPSTREAM} {
+			transport http {
+				# A small machine reading a large phone photo can take a few seconds.
+				response_header_timeout 120s
+			}
+		}
+	}
+	handle {
+		respond "Not found" 404
+	}
+}

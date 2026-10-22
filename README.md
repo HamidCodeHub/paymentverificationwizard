@@ -197,3 +197,8 @@ Change a threshold, then run `--verify` (originals, ~2 min) or `--verify=full` (
 
 See `deploy/DEPLOY.md`: Docker Compose behind Caddy, same as style-match; the models and references are mounted,
 never baked into the image. Next to style-match on one server, share its Caddy (instructions there).
+
+Free hosting (Oracle Cloud Always Free):
+- `deploy/oracle-micro/MICRO.md` — **live setup**: each service on its own free 1 GB AMD micro machine, with the
+  int8 CLIP model from `scripts/quantize-model.py` (same verdicts, a third of the memory).
+- `deploy/oracle/ORACLE.md` — both services on one free ARM A1 machine, for when Oracle has A1 capacity.

@@ -160,6 +160,44 @@ add_action( 'wp_ajax_pd_receipt_check', function () {
 } );
 
 // ---------------------------------------------------------------------------------------------------------
+// Admin demo: an administrator who already has access normally sees only "payment confirmed + start quiz".
+// For demos and testing, administrators always get the upload form instead; a good receipt then shows the
+// confirmation and the quiz button right on the page (no order is created). Customers are not affected.
+// ---------------------------------------------------------------------------------------------------------
+function pd_rc_is_demo() {
+	return is_user_logged_in() && current_user_can( 'manage_options' );
+}
+
+add_filter( 'do_shortcode_tag', function ( $output, $tag ) {
+	if ( $tag !== 'pd_iran_payment' || ! pd_rc_is_demo() || strpos( $output, 'pd-upload' ) !== false ) {
+		return $output;
+	}
+	$cut = strpos( $output, '<p class="pd-msg' );
+	if ( $cut === false ) {
+		return $output;
+	}
+	$wa = esc_attr( get_user_meta( get_current_user_id(), 'billing_whatsapp', true ) );
+	return substr( $output, 0, $cut )
+		. '<p class="pd-msg pd-info">پیش‌نمایش مدیر: فرم بارگذاری برای آزمایش نمایش داده می‌شود (مشتریان این پیام را نمی‌بینند).</p>'
+		. '<form method="post" enctype="multipart/form-data" class="pd-upload">'
+		. wp_nonce_field( 'pd_iran_upload', 'pd_iran_nonce', true, false )
+		. '<label>شماره واتس‌اپ *</label><input type="tel" name="pd_whatsapp" value="' . $wa . '" required dir="ltr">'
+		. '<label>تصویر رسید واریز *</label><input type="file" name="pd_receipt" accept="image/*" required>'
+		. '<p class="pd-hint">فایل تصویر، حداکثر ۸ مگابایت</p>'
+		. '<button type="submit" class="pd-btn" name="pd_iran_submit" value="1">ارسال رسید</button>'
+		. '</form></div>';
+}, 10, 2 );
+
+// Admin demo: start the 3-try counter again.
+add_action( 'wp_ajax_pd_receipt_reset', function () {
+	if ( ! pd_rc_is_demo() || ! check_ajax_referer( 'pd_receipt_check', 'nonce', false ) ) {
+		wp_send_json( array( 'ok' => false ), 403 );
+	}
+	delete_transient( pd_rc_unsure_key( get_current_user_id() ) );
+	wp_send_json( array( 'ok' => true ) );
+} );
+
+// ---------------------------------------------------------------------------------------------------------
 // Front end: only on the page with the upload form.
 // ---------------------------------------------------------------------------------------------------------
 add_action( 'wp_footer', function () {
@@ -175,6 +213,8 @@ add_action( 'wp_footer', function () {
 		'max'       => (int) PD_RC_MAX_UNSURE,
 		'email'     => $email,
 		'userEmail' => $user->user_email,
+		'demo'      => pd_rc_is_demo(),
+		'quizUrl'   => home_url( '/quiz' ),
 	);
 	?>
 <style>
@@ -187,6 +227,7 @@ add_action( 'wp_footer', function () {
 .pd-rc-escalate{margin-top:12px}
 .pd-rc-escalate .pd-rc-mail{direction:ltr;font-weight:700;word-break:break-all}
 .pd-rc-escalate .pd-btn{display:block;text-align:center;margin-top:12px}
+.pd-rc-reset{display:block;text-align:center;margin-top:10px;font-size:13px;color:#666}
 </style>
 <script>
 (function () {
@@ -221,6 +262,16 @@ add_action( 'wp_footer', function () {
 			+ ' لطفاً تصویر رسید را به ایمیل زیر بفرستید تا پانته‌آ آن را بررسی کند و از طریق ایمیل یا واتس‌اپ با شما تماس بگیرد.</p>'
 			+ '<p class="pd-rc-mail">' + CFG.email + '</p>'
 			+ '<a class="pd-btn" href="' + href + '">ارسال رسید از طریق ایمیل</a>';
+		if (CFG.demo) {
+			var again = document.createElement('a');
+			again.href = '#'; again.className = 'pd-rc-reset'; again.textContent = 'شروع دوباره (فقط مدیر)';
+			again.addEventListener('click', function (e) {
+				e.preventDefault();
+				var fd = new FormData(); fd.append('action', 'pd_receipt_reset'); fd.append('nonce', CFG.nonce);
+				fetch(CFG.ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' }).then(function () { location.reload(); });
+			});
+			div.appendChild(again);
+		}
 		form.parentNode.replaceChild(div, form);
 	}
 
@@ -247,7 +298,15 @@ add_action( 'wp_footer', function () {
 		});
 	}
 
+	function demoSuccess() {
+		var div = document.createElement('div');
+		div.innerHTML = '<p class="pd-msg pd-ok">رسید پرداخت تأیید شد. پرداخت شما تأیید شده است.</p>'
+			+ '<a class="pd-btn" href="' + CFG.quizUrl + '">شروع پرسشنامه</a>';
+		form.parentNode.replaceChild(div, form);
+	}
+
 	function submitOriginal() {
+		if (CFG.demo) { demoSuccess(); return; }
 		approved = true;
 		var flag = document.createElement('input');
 		flag.type = 'hidden'; flag.name = 'pd_iran_submit'; flag.value = '1';
@@ -311,6 +370,11 @@ add_action( 'wp_footer', function () {
 				break;
 			default:
 				// Service unreachable or not configured: never block a paying customer, send for manual review.
+				if (CFG.demo) {
+					done();
+					show('pd-err', 'پیش‌نمایش مدیر: سرویس بررسی پاسخ نداد (' + (res.error || 'error') + '). کلید API در تنظیمات → عمومی → Receipt check را بررسی کنید. برای مشتری، رسید در این حالت برای بررسی دستی ارسال می‌شود.');
+					break;
+				}
 				show('pd-info', 'بررسی خودکار در حال حاضر در دسترس نیست؛ رسید شما برای بررسی دستی ارسال می‌شود…');
 				submitOriginal();
 				return;

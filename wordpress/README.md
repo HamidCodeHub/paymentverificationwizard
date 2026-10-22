@@ -14,6 +14,10 @@ panteadesignstudio.com (paste without the first `<?php` line). It adds the autom
 Settings → General → **Receipt check**: API key (from `~/pantea/stack/.env` on the receipts server), API address
 (default `https://receipts.panteadesignstudio.com`), e-mail for unclear receipts (default: the admin e-mail).
 
+**Admin demo:** administrators always see the upload form (even after buying), with a note customers never see. A good receipt
+shows the confirmation and the quiz button on the page without creating an order; after 3 unclear uploads a
+"شروع دوباره (فقط مدیر)" link resets the counter.
+
 The browser re-encodes the image to JPEG (max 2000 px) before sending, so WebP and iPhone photos work and uploads
 stay small; the API key stays on the WordPress server (admin-ajax proxy). All WordPress calls reach the service
 from Hostinger's IP, so its per-IP rate limit (20/min) is effectively site-wide.

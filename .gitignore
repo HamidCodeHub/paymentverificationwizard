@@ -46,3 +46,5 @@ desktop.ini
 
 # Logs
 *.log
+_to_delete/
+.venv*/

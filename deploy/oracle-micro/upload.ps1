@@ -45,7 +45,7 @@ function Pack([string]$Name, [string]$Dir, [string[]]$Exclude = @(), [string[]]$
 }
 
 $sourceExcludes = @("target", ".idea", ".git", "models", "references", "themes", "node_modules", "*.npz",
-                    "probe_scores.json", "*.log", "bench", "wordpress-plugin")
+                    "probe_scores.json", "*.log", "bench", "wordpress-plugin", "_to_delete", ".venv*")
 
 Write-Host "Packing for '$Role' ..."
 Pack "stack" (Join-Path $gate "deploy\oracle-micro")
